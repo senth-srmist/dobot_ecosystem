@@ -16,72 +16,42 @@ print("Connect result:", result)
 
 # READING BASIC SENSORS AND WRITING TO LEDS
 
-buttons = magicbox.get_button_status(port=2)
-  
-pir = magicbox.is_pir_detected(port=4)
-    
+buttons = magicbox.get_button_status(port=2)  
+pir = magicbox.is_pir_detected(port=4)    
 joystick = magicbox.get_joystick_pos(port=5)
-
 joystick_button = magicbox.get_joystick_button(port=5)
-
 proximity = magicbox.get_photoelectric_switch_value(port=6)
-
 magicbox.set_led_color(port=1, index=1, color="red", value=1)
-
 pot = magicbox.get_knob_value(port=3)
 
 # MAGIC BOX EXTERNAL PERIPHERAL ACCESS
-
 #%%LIMIT SWITCH and similiar type fo inputs with NC and COM terminals connected to 1 and 4 or 2 and 4
-
 buttons = magicbox.get_button_status(port=4)
-
 print("Buttons:", buttons)
 
 #Buttons: (1, 0) when not pressed or vice versa
-
 #%% SOLENOID AND GRIPPER --> OUTPUT DIGITAL SIGNALS
-
 # PORT1 signal pin
-
 PORT1 = 15 #or 16
-
 PORT2 = 13
-
 PORT3 = 23
-
 PORT4 = 21
-
 PORT5 = 20
-
 PORT6 = 18
 
 # Configure PORT1 as digital output
-
 magicbox.set_iomultiplexing(PORT1, 1)
-
 # HIGH ≈ 3.3 V
-
 magicbox.set_iodo(PORT1, 1)
-
 # LOW ≈ 0 V
 
 magicbox.set_iodo(PORT1, 0)
-
 #%%Conveyor Mode Access for STP1 and STP2
-
 magicbox.set_converyor(index=0, enable=True, speed=0)
-
 magicbox.set_converyor(index=1, enable=True, speed=0)
-
 #%%Accessing STP2 with in-built function having trapezoidal velocity profile
-
 magicbox.set_device_withl(enable=True,version=1)
-
 magicbox.set_lspeed_ratio(100)
-
 magicbox.set_ptpwithl_cmd(100)
-
 #%% Accessing STP1 with NEWLY ADDED function (in MagicBox.py) having HARD STOPPING at the desired distance
-
 magicbox.set_stp1_distance(distance=500, speed=50)
