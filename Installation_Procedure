@@ -1,26 +1,17 @@
 # INSTALLATION STEPS RELATED TO THE PYTHON MODULES REQUIRED FOR DOBOT PRODUCT ACCESS
 
 Perform the following steps to setup the virtual environment where both 'dobotapi' and 'DobotEDU' module can be used under Anaconda Distribution 
-
 Anaconda Distribution version tested : Anaconda3-2024.10-1-Windows-x86_64
-
 DobotEDU Version: 2.2.2
-
 dobotapi Version: 0.0.1
 
 
 conda create --name dobotedu python=3.8
-
 conda activate dobotedu
-
 python -m pip install --upgrade pip
-
 pip install "setuptools<58"
-
 pip install wheel
-
 python -c "import setuptools; print(setuptools.__version__)"
-
 pip install DobotEDU
 
 Clone the dobotapi repo from https://github.com/Stax124/DobotAPI
@@ -28,17 +19,12 @@ Download te zip file, unzip and paste in folder C:/Users/Admin
 Edit the file pyproject.toml to change Python 3.9 to 3.8
 
 cd C:\SENTH\DobotAPI-main\DobotAPI-main # Point to the location where you have the cloned directory of dobot api
-
 pip install .
-
 pip install pandas
 
 TO USE SPYDER
-
 pip install spyder-kernels==2.5.*
-
 Open Spyder (from your base environment).
-
 Go to:Tools → Preferences → Python Interpreter
 Select:
 Use the following Python interpreter
@@ -51,21 +37,15 @@ Restart Spyder.
 
 Edit the file:
 C:\Users\Admin\anaconda3\envs\dobotedu\Lib\site-packages\dobotapi\utils.py
-
 At the top, add:
 
 from typing import List
-
 Then change:
-
 def get_coms_port() -> list[str]:
-
 to
-
 def get_coms_port() -> List[str]:
 
 Save the file:
-
 Start Dobotlink
 
 Replace the files dobot.py and belt.py with the attached files in the installation directory C:\Users\Admin\anaconda3\envs\dobotedu\Lib\site-packages\dobotapi
