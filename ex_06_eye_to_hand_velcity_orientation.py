@@ -2,7 +2,9 @@
 import sys
 sys.path.append(r'C:\Users\Admin\Desktop')
 from DobotEDU import *
-magician.set_converyor(index=magician.Stepper1,enable=True,speed=-10.0)
+import random
+conv_speed = random.randint(-10,-30)
+magician.set_converyor(index=magician.Stepper1,enable=True,speed=conv_speed)
 #sys.path.append(r'D:\LECTURE\0SEMESTER_WISE\ODD 2026-27\21MHE457L - Robot Programming\Codes\Helper_Files')
 from helper_04 import HikrobotCamera
 import cv2
