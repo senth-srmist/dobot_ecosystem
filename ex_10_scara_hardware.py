@@ -17,7 +17,7 @@ magicbox.on_pause = lambda: None
 print("Searching...")
 devices = magicbox.search_dobot()
 print(devices)
-magicbox._port_name = "COM12"
+magicbox._port_name = "COM8"
 print("Using port:", magicbox._port_name)
 result = magicbox.connect_dobot(queue_start=True, is_queued=False)
 print("Connect result:", result)
@@ -29,16 +29,9 @@ print("Connect result:", result)
 STEP_PER_CIRCLE = 360.0 / 1.8 * 5.0 * 16.0
 MM_PER_CIRCLE = 3.1415926535898 * 32 #(rotary to linear conversion)
 
-#%% IN_BUILT FUNCTION
-magicbox.set_device_withl(enable=True,version=1)
-magicbox.set_lspeed_ratio(100)
-magicbox.set_ptpwithl_cmd(100)
-magicbox.set_device_withl(enable=False,version=1)
-
 #%% Verifying Different Speeds
 magicbox.queuedcmd_clear()
 magicbox.queuedcmd_start()
-
 PULSES = 3200   # 10 revs at 3200 ppr; adjust to your measured value
 for speed in (5000, 10000, 15000, 20000, 25000):
     magicbox.set_emotors(0, True,  speed, PULSES, is_queued=True)   # forward
@@ -48,12 +41,14 @@ for speed in (5000, 10000, 15000, 20000, 25000):
     input(f"speed {speed} done, check the mark, press Enter for next...")
 #%%
 class Stepper:
-    def __init__(self, index, pulses_per_rev=3200, gear_ratio=1.0, speed_dps=180):
+    def __init__(self, index, pulses_per_rev=3200, gear_ratio=1, speed_dps=180):
+        
         self.index = index
         self.ppr = pulses_per_rev * gear_ratio
         self.speed_dps = speed_dps
         self.angle = 0.0
         self.busy_until = 0.0
+        
 
     def plan(self, target_deg):
         delta = target_deg - self.angle
@@ -81,7 +76,55 @@ class Stepper:
         self.start(target_deg)
         self.wait()
 
+#%%
+# ==========================================
+# NEW EXTERNAL MULTI-STEPPER CONTROLLER
+# ==========================================
+class MultiStepper:
+    def __init__(self, stepper1, stepper2):
+        self.m1 = stepper1
+        self.m2 = stepper2
 
+    def _calculate_natural_duration(self, stepper, target_deg):
+        """Calculates the time a stepper needs at its standard speed setting."""
+        _, pulses = stepper.plan(target_deg)
+        if pulses == 0:
+            return 0.0
+        # Calculate standard pulses-per-second from the original class logic
+        pps = (stepper.speed_dps / 360.0) * stepper.ppr
+        return pulses / pps
+
+    def move_simultaneously(self, target_deg1, target_deg2):
+        """Moves both motors concurrently, scaling the speeds to finish together."""
+        # 1. Clear any pending individual movements first
+        self.m1.wait()
+        self.m2.wait()
+
+        # 2. Compute individual execution times using original speed parameters
+        dur1 = self._calculate_natural_duration(self.m1, target_deg1)
+        dur2 = self._calculate_natural_duration(self.m2, target_deg2)
+
+        # 3. Synchronize by choosing the longer window
+        max_duration = max(dur1, dur2)
+
+        if max_duration == 0:
+            return  # Both motors are already at the target positions
+
+        # 4. Trigger moves back-to-back using your original .start(target, duration) signatures
+        # We manually update busy_until *before* the second start to bypass m1's self.wait() rule safely
+        self.m1.start(target_deg1, duration=max_duration)
+        self.m2.start(target_deg2, duration=max_duration)
+
+        # 5. Block the main thread until both routines finish execution
+        self.m1.wait()
+        self.m2.wait()
+
+#%% Simultaneous Homing of Two Axis for Serial SCARA
+TRIGGER_LEVEL = 0           # value the input reads when the switch is pressed (0 or 1)
+
+# limit switch states (True = pressed)
+Ls_01 = False               # switch for the motor on stp1
+Ls_02 = False               # switch for the motor on stp2
 def move_together(*moves, sync_finish=True):
     """moves = (stepper, target_deg), ... Both start together and the call waits for all."""
     duration = None
@@ -96,6 +139,57 @@ def move_together(*moves, sync_finish=True):
         s.start(tgt, duration)
     for s, _ in moves:
         s.wait()
+def read_limit_switches(port_id=1):
+    """Return (ls1_pressed, ls2_pressed).
+    EDIT THIS to match your wiring and the real get_iodi / get_di signature.
+    Placeholder below assumes get_iodi(eio_pin) returns 0/1; the pin numbers are examples."""
+    v1 = magicbox.get_button_status(port=port_id)[0]    # <-- eio pin for switch 1 (placeholder)
+    v2 = magicbox.get_button_status(port=port_id)[1]    # <-- eio pin for switch 2 (placeholder)
+    return (v1 == TRIGGER_LEVEL), (v2 == TRIGGER_LEVEL)
+
+
+#%%HOMING OF PARALLEL SCARA
+stp1 = Stepper(index=0,  gear_ratio=62/16)
+stp2 = Stepper(index=1, gear_ratio=62/16)
+
+stp1.angle=0
+stp2.angle=0
+loop_count = 1
+while True:    
+    left_switch = read_limit_switches()[0]
+    #right_switch = read_limit_switches()[1]
+    stp1.move_to(loop_count)
+    stp2.move_to(loop_count)
+    loop_count+=1
+    if left_switch:
+        break    
+print('LEFT_LINK_AT_HOME')
+stp1.angle=0
+stp2.angle=0
+loop_count = 1
+while True:        
+    
+    right_switch = read_limit_switches()[1]
+    link1_angle = stp1.angle
+    stp1.move_to(-loop_count)
+    stp2.move_to(-loop_count)
+    loop_count+=1
+    if right_switch:
+        break    
+
+print('RIGHT_LINK_AT_HOME')
+print('LEFT_LINK',stp1.angle)
+stp2.angle=0
+print('RIGHT_LINK',stp2.angle)
+#%%
+controller = MultiStepper(stp1, stp2)
+controller.move_simultaneously(-90, 0)
+time.sleep(1)
+controller.move_simultaneously(-80, 40)
+time.sleep(1)
+controller.move_simultaneously(-60, 60)
+
+#%%    
 '''
 sync_finish=True: the speeds are scaled so both motors arrive at the same moment. The slower of the two moves is run at its normal speed_dps and the other is slowed to match. With False, each motor runs at its own speed and you wait for the longer one.
 No-wait use: call start() on each motor and do other work, then wait() before the next move. start() also waits automatically if that motor is still busy.
@@ -103,103 +197,46 @@ Check it: move_together on two equal moves should take about one move’s durati
 Queue: keep the queue empty when using immediate moves, so call magicbox.queuedcmd_clear() once at the start if you used queued mode earlier.
 Speed limits: the speed you ask for must be one the motor can actually reach, or it will skip steps while the software believes it arrived.
 '''
+
+#%% HOMING SERIAL SCARA
+
+stp1 = Stepper(index=0,  gear_ratio=20)
+stp2 = Stepper(index=1, gear_ratio=16)
+
+loop_count = 1
+while True:    
+    left_switch = read_limit_switches(port_id=2)[0]
+    stp1.move_to(-loop_count)
+    loop_count+=1
+    if left_switch:
+        break    
+print('LEFT_LINK_AT_HOME')
+stp1.angle=0
+loop_count = 1
+while True:    
+    right_switch = read_limit_switches(port_id=2)[1]
+    stp2.move_to(-loop_count)
+    loop_count+=1
+    if right_switch:
+        break    
+print('RIGHT_LINK_AT_HOME')
+stp2.angle=0
+#%%CHECK MOVEMENT
+controller = MultiStepper(stp1, stp2)
 #%%
+for i in range(5):
+    stp1.move_to(45)    
+    stp2.move_to(130)
+    time.sleep(1)
+    stp1.move_to(5)    
+    stp2.move_to(5)
+    time.sleep(1)
 
 #%%
-# usage
-stp1 = Stepper(index=0, pulses_per_rev=3200, speed_dps=180)
-stp1.move_to(90)     # shaft to +90 degrees
-stp1.move_to(0)    # shaft to -45 degrees (moves back 135)
-#%%
-stp2 = Stepper(index=1, pulses_per_rev=3200, speed_dps=180)
-stp2.move_to(90)     # shaft to +90 degrees
-stp2.move_to(0) 
-#%%
-stp1 = Stepper(0, pulses_per_rev=3200, speed_dps=180)
-stp2 = Stepper(1, pulses_per_rev=3200, speed_dps=180)
-move_together((stp1, 90), (stp2, -180))
-#%%Reading angles
-stp1.angle
-#%% READING BASIC SENSORS AND WRITING TO LEDS
-buttons = magicbox.get_button_status(port=6)  
-#%% Homing in a sequence
-magicbox.set_converyor(index=0, enable=True, speed=5)
-while True:
-    buttons = magicbox.get_button_status(port=6)  
-    if buttons[0]==0:
-        magicbox.set_converyor(index=0, enable=True, speed=0)
-        break
-magicbox.set_converyor(index=1, enable=True, speed=5)
-while True:
-    buttons = magicbox.get_button_status(port=6)  
-    if buttons[1]==0:
-        magicbox.set_converyor(index=1, enable=True, speed=0)
-        break
-#%% Simultaneous Homing of Two Axis for Serial SCARA
-HOME_SPEED_PPS = 800        # slow, pulses/sec (slower = less overshoot after the switch trips)
-CW_SIGN = +1                # +1 or -1: sign of speed that gives clockwise. Verify by test.
-TRIGGER_LEVEL = 0           # value the input reads when the switch is pressed (0 or 1)
-HOME_TIMEOUT_S = 30         # safety: give up if no switch is hit
-POLL_S = 0.002
-
-# limit switch states (True = pressed)
-Ls_01 = False               # switch for the motor on stp1
-Ls_02 = False               # switch for the motor on stp2
-
-def read_limit_switches():
-    """Return (ls1_pressed, ls2_pressed).
-    EDIT THIS to match your wiring and the real get_iodi / get_di signature.
-    Placeholder below assumes get_iodi(eio_pin) returns 0/1; the pin numbers are examples."""
-    v1 = magicbox.get_button_status(port=2)[0]    # <-- eio pin for switch 1 (placeholder)
-    v2 = magicbox.get_button_status(port=2)[1]    # <-- eio pin for switch 2 (placeholder)
-    return (v1 == TRIGGER_LEVEL), (v2 == TRIGGER_LEVEL)
-
-def stop_motor(stepper):
-    magicbox.set_emotor(stepper.index, False, 0, is_queued=False)
-
-def home_both(stp_a, stp_b):
-    """Run both steppers clockwise at the same time; each stops when its own switch trips."""
-    global Ls_01, Ls_02
-
-    Ls_01, Ls_02 = read_limit_switches()
-    done_a, done_b = Ls_01, Ls_02              # already on the switch -> don't move that motor
-
-    spd = CW_SIGN * HOME_SPEED_PPS
-    if not done_a:
-        magicbox.set_emotor(stp_a.index, True, spd, is_queued=False)
-    if not done_b:
-        magicbox.set_emotor(stp_b.index, True, spd, is_queued=False)
-
-    t0 = time.perf_counter()
-    try:
-        while not (done_a and done_b):
-            if time.perf_counter() - t0 > HOME_TIMEOUT_S:
-                raise TimeoutError("Homing timed out: a limit switch was not reached")
-
-            Ls_01, Ls_02 = read_limit_switches()
-
-            if Ls_01 and not done_a:
-                stop_motor(stp_a)
-                done_a = True
-            if Ls_02 and not done_b:
-                stop_motor(stp_b)
-                done_b = True
-
-            time.sleep(POLL_S)
-    except BaseException:
-        stop_motor(stp_a)                      # always stop both on error / Ctrl+C
-        stop_motor(stp_b)
-        raise
-
-    # declare this position as zero (the Stepper class itself is untouched)
-    for s in (stp_a, stp_b):
-        s.angle = 0.0
-        s.busy_until = 0.0
-
-
-stp1 = Stepper(0, pulses_per_rev=3200, speed_dps=180)
-stp2 = Stepper(1, pulses_per_rev=3200, speed_dps=180)
-home_both(stp1, stp2)
+# Turns power OFF to Motor 1
+magicbox.set_emotors(index=0, enable=False, speed=0, distance=0, is_queued=False)
+# Turns power OFF to Motor 2
+magicbox.set_emotors(index=1, enable=False, speed=0, distance=0, is_queued=False)
 
 #%%
 magicbox.disconnect_dobot()
